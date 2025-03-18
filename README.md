@@ -46,8 +46,11 @@ python log_parser.py -t forward_traffic -d /path/to/logs/ -o /path/to/output/
 ```
 ### **🔹 Arguments**
 ```bash
---type	    -t	Required: Type of log file (forward_traffic or vpn_event)
---directory	-d	Path to a directory containing multiple log files
---file	    -f	Path to a single log file
---output	  -o	(Optional) Directory to save the output XLSX file
+| Argument    | Short | Description                                         |
+|------------|-------|-----------------------------------------------------|
+| `--type`   | `-t`  | **Required**: Type of log file (`forward_traffic` or `vpn_event`) |
+| `--directory` | `-d` | Path to a directory containing multiple log files |
+| `--file`   | `-f`  | Path to a single log file                          |
+| `--output` | `-o`  | *(Optional)* Directory to save the output XLSX file |
+
 ```
