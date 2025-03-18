@@ -18,6 +18,6 @@ A command-line tool to parse **Fortinet Forward Traffic** and **VPN Event** logs
 
 ### **1️⃣ Clone the Repository**
 ```bash
-git clone https://github.com/YOUR_GITHUB_USERNAME/fortinet-log-parser.git
-cd fortinet-log-parser
+git clone https://github.com/teohongwei898/fortinetparser.git
+cd fortinetparser
 
