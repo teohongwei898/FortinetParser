@@ -20,4 +20,33 @@ A command-line tool to parse **Fortinet Forward Traffic** and **VPN Event** logs
 ```bash
 git clone https://github.com/teohongwei898/fortinetparser.git
 cd fortinetparser
+```
 
+### **2️⃣ Install Dependencies**
+
+Make sure you have Python 3.6+ installed, then install required libraries:
+```bash
+pip install -r requirements.txt
+```
+
+### **⚡ Usage**
+### **🔹 Basic Command**
+
+To process a single log file:
+
+python log_parser.py -t forward_traffic -f /path/to/forward_traffic.log
+
+To process a directory of logs:
+
+python log_parser.py -t vpn_event -d /path/to/logs/
+
+To specify an output directory:
+
+python log_parser.py -t forward_traffic -d /path/to/logs/ -o /path/to/output/
+
+### **🔹 Arguments**
+Argument	Short	Description
+--type	-t	Required: Type of log file (forward_traffic or vpn_event)
+--directory	-d	Path to a directory containing multiple log files
+--file	-f	Path to a single log file
+--output	-o	(Optional) Directory to save the output XLSX file
