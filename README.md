@@ -33,20 +33,21 @@ pip install -r requirements.txt
 ### **🔹 Basic Command**
 
 To process a single log file:
-
+```bash
 python log_parser.py -t forward_traffic -f /path/to/forward_traffic.log
-
+```
 To process a directory of logs:
-
+```bash
 python log_parser.py -t vpn_event -d /path/to/logs/
-
+```
 To specify an output directory:
-
+```bash
 python log_parser.py -t forward_traffic -d /path/to/logs/ -o /path/to/output/
-
+```
 ### **🔹 Arguments**
-Argument	Short	Description
+```bash
 --type	-t	Required: Type of log file (forward_traffic or vpn_event)
 --directory	-d	Path to a directory containing multiple log files
 --file	-f	Path to a single log file
 --output	-o	(Optional) Directory to save the output XLSX file
+```
