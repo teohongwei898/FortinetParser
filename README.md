@@ -45,7 +45,7 @@ To specify an output directory:
 python log_parser.py -t forward_traffic -d /path/to/logs/ -o /path/to/output/
 ```
 ### **🔹 Arguments**
-```bash
+
 | Argument    | Short | Description                                         |
 |------------|-------|-----------------------------------------------------|
 | `--type`   | `-t`  | **Required**: Type of log file (`forward_traffic` or `vpn_event`) |
@@ -53,4 +53,3 @@ python log_parser.py -t forward_traffic -d /path/to/logs/ -o /path/to/output/
 | `--file`   | `-f`  | Path to a single log file                          |
 | `--output` | `-o`  | *(Optional)* Directory to save the output XLSX file |
 
-```
