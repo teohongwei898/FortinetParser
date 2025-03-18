@@ -1,6 +1,6 @@
 # Fortinet Log Parser
 
-A command-line tool to parse **Fortinet Forward Traffic** and **VPN Event** logs, extracting meaningful insights.
+A command-line tool to parse **Fortinet Forward Traffic** and **VPN User Event** logs, extracting meaningful insights.
 
 ## 🚀 Features
 
