@@ -39,7 +39,7 @@ def parse_vpn_user_log(files):
 
     df = pd.DataFrame(data)
     if df.empty:
-        print("❌ No valid VPN user event logs found! Check log format.")
+        print("No valid VPN user event logs found! Check log format.")
         return df, pd.DataFrame()
 
     df['Tunnel ID'] = pd.to_numeric(df.get('tunnelid', pd.NA), errors='coerce')
@@ -92,7 +92,7 @@ def parse_forward_traffic_log(files):
 
     df = pd.DataFrame(data)
     if df.empty:
-        print("❌ No valid traffic logs found! Check log format.")
+        print("No valid traffic logs found! Check log format.")
         return df, pd.DataFrame()
 
     df['Session ID'] = pd.to_numeric(df['sessionid'], errors='coerce')
@@ -168,7 +168,7 @@ def main():
         detailed_df.to_excel(writer, sheet_name="Detailed Output", index=False)
         summary_df.to_excel(writer, sheet_name="Summary", index=False)
 
-    print(f"✅ Parsed log saved to {output_file}")
+    print(f"Parsed log saved to {output_file}")
 
 if __name__ == "__main__":
     main()
