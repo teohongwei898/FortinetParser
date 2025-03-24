@@ -20,7 +20,23 @@ def extract_timezone(files):
                             return f"UTC{sign}{int(hours)}"  # Convert to "UTC+X" format
     return "UTC"  # Default if not found
 
+def deduplicate_files(files):
+    """Reads multiple files, removes duplicate lines across all of them, and returns a temporary deduplicated file."""
+    unique_lines = set()
+    temp_file = "deduplicated_logs.tmp"
+
+    with open(temp_file, "w", encoding="utf-8") as output:
+        for file_path in files:
+            with open(file_path, "r", encoding="utf-8") as file:
+                for line in file:
+                    if line not in unique_lines:
+                        unique_lines.add(line)
+                        output.write(line)
+    
+    return temp_file
+
 def parse_vpn_user_log(files):
+    """Parses VPN user log files."""
     data = []
     timezone = extract_timezone(files)
 
@@ -74,7 +90,8 @@ def parse_vpn_user_log(files):
     return detailed_output, summary_output
 
 def parse_forward_traffic_log(files):
-    import numpy as np  # Just in case
+    """Parses forward traffic log files."""
+    import numpy as np
 
     data = []
     timezone = extract_timezone(files)
@@ -190,17 +207,21 @@ def main():
     parser.add_argument('-d', '--directory', required=False, help="Directory containing log files")
     parser.add_argument('-f', '--file', required=False, help="Single log file to process")
     parser.add_argument('-o', '--output', required=False, help="Output directory for the parsed XLSX file")
+    parser.add_argument('--dedup', action='store_true', help="Enable deduplication of log lines across files")
 
     args = parser.parse_args()
 
-    log_type = args.type
     log_files = [args.file] if args.file else glob(os.path.join(args.directory, "*.log"))
 
+    if args.dedup:
+        print("Deduplication enabled. Processing unique log lines only.")
+        deduplicated_file = deduplicate_files(log_files)
+        log_files = [deduplicated_file]
+
+    detailed_df, summary_df = parse_forward_traffic_log(log_files) if args.type == 'forward_traffic' else parse_vpn_user_log(log_files)
+
     output_path = args.output if args.output else os.getcwd()
-
-    output_file = os.path.join(output_path, f"{log_type}_output.xlsx")
-
-    detailed_df, summary_df = parse_forward_traffic_log(log_files) if log_type == 'forward_traffic' else parse_vpn_user_log(log_files)
+    output_file = os.path.join(output_path, f"{args.type}_output.xlsx")
 
     with pd.ExcelWriter(output_file, engine='xlsxwriter') as writer:
         detailed_df.to_excel(writer, sheet_name="Detailed Output", index=False)
