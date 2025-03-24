@@ -74,6 +74,8 @@ def parse_vpn_user_log(files):
     return detailed_output, summary_output
 
 def parse_forward_traffic_log(files):
+    import numpy as np  # Just in case
+
     data = []
     timezone = extract_timezone(files)
 
@@ -95,37 +97,69 @@ def parse_forward_traffic_log(files):
         print("No valid traffic logs found! Check log format.")
         return df, pd.DataFrame()
 
+    # Basic numeric conversions
     df['Session ID'] = pd.to_numeric(df['sessionid'], errors='coerce')
     df['Source Port'] = pd.to_numeric(df['srcport'], errors='coerce')
     df['Destination Port'] = pd.to_numeric(df['dstport'], errors='coerce')
     df['Protocol'] = pd.to_numeric(df['proto'], errors='coerce')
     df['Bytes Sent'] = pd.to_numeric(df.get('sentbyte', pd.NA), errors='coerce')
     df['Bytes Received'] = pd.to_numeric(df.get('rcvdbyte', pd.NA), errors='coerce')
+    df['Duration (s)'] = pd.to_numeric(df.get('duration', pd.NA), errors='coerce')
 
     df[f'Start Time ({timezone})'] = df['date'] + " " + df['time']
     df[f'Start Time ({timezone})'] = pd.to_datetime(df[f'Start Time ({timezone})'], errors='coerce')
 
     df = df.sort_values(by=['Session ID', 'Source Port', f'Start Time ({timezone})'])
 
-    df['Bytes Sent'] = df.groupby(['Session ID', 'Source Port', 'Destination Port', 'srcip', 'dstip', 'Protocol'])['Bytes Sent'].cummax()
-    df['Bytes Received'] = df.groupby(['Session ID', 'Source Port', 'Destination Port', 'srcip', 'dstip', 'Protocol'])['Bytes Received'].cummax()
+    # Cumulative max to get highest value per session group
+    group_cols = ['Session ID', 'Source Port', 'Destination Port', 'srcip', 'dstip', 'Protocol']
+    df['Bytes Sent'] = df.groupby(group_cols)['Bytes Sent'].cummax()
+    df['Bytes Received'] = df.groupby(group_cols)['Bytes Received'].cummax()
 
-    df['Sent Diff'] = df.groupby(['Session ID', 'Source Port', 'Destination Port', 'srcip', 'dstip', 'Protocol'])['Bytes Sent'].diff().fillna(0)
-    df['Received Diff'] = df.groupby(['Session ID', 'Source Port', 'Destination Port', 'srcip', 'dstip', 'Protocol'])['Bytes Received'].diff().fillna(0)
-
+    # Differences
+    df['Sent Diff'] = df.groupby(group_cols)['Bytes Sent'].diff().fillna(0)
+    df['Received Diff'] = df.groupby(group_cols)['Bytes Received'].diff().fillna(0)
     df['Sent Diff'] = df['Sent Diff'].clip(lower=0)
     df['Received Diff'] = df['Received Diff'].clip(lower=0)
 
+    # MB conversions
     df['Sent Diff (MB)'] = df['Sent Diff'] / (1024 * 1024)
     df['Received Diff (MB)'] = df['Received Diff'] / (1024 * 1024)
 
-    session_summary = df.groupby(['Session ID', 'Source Port', 'Destination Port', 'srcip', 'dstip', 'Protocol']).agg({
+    # Throughput (Bytes per second and Mbps)
+    df['Bytes Sent/sec'] = df['Bytes Sent'] / df['Duration (s)']
+    df['Bytes Received/sec'] = df['Bytes Received'] / df['Duration (s)']
+    df['Throughput Sent (Mbps)'] = (df['Bytes Sent/sec'] * 8) / 1_000_000
+    df['Throughput Received (Mbps)'] = (df['Bytes Received/sec'] * 8) / 1_000_000
+
+    # Categorize session durations
+    def categorize_duration(seconds):
+        if pd.isna(seconds):
+            return 'Unknown'
+        elif seconds < 10:
+            return 'Very Short (<10s)'
+        elif seconds < 60:
+            return 'Short (<1m)'
+        elif seconds < 300:
+            return 'Medium (<5m)'
+        elif seconds < 1800:
+            return 'Long (<30m)'
+        else:
+            return 'Very Long (>30m)'
+
+    df['Session Length Category'] = df['Duration (s)'].apply(categorize_duration)
+
+    # Session summary
+    session_summary = df.groupby(group_cols).agg({
         f'Start Time ({timezone})': 'first',
-        f'Start Time ({timezone})': 'last',
+        'Duration (s)': 'max',
         'Sent Diff': 'sum',
         'Received Diff': 'sum',
         'Sent Diff (MB)': 'sum',
-        'Received Diff (MB)': 'sum'
+        'Received Diff (MB)': 'sum',
+        'Throughput Sent (Mbps)': 'mean',
+        'Throughput Received (Mbps)': 'mean',
+        'Session Length Category': 'first'
     }).reset_index()
 
     session_summary.rename(columns={
@@ -135,9 +169,13 @@ def parse_forward_traffic_log(files):
         'Received Diff': 'Total Bytes Received',
         'Sent Diff (MB)': 'Total Sent (MB)',
         'Received Diff (MB)': 'Total Received (MB)',
+        'Duration (s)': 'Duration (s)'
     }, inplace=True)
 
-    detailed_output = session_summary[[f'Start Time ({timezone})', f'Start Time ({timezone})', 'Session ID', 'Source IP', 'Destination IP', 'Source Port', 'Destination Port', 'Protocol', 'Total Bytes Sent', 'Total Sent (MB)', 'Total Bytes Received', 'Total Received (MB)']]
+    detailed_output = session_summary[[f'Start Time ({timezone})', 'Session ID', 'Source IP', 'Destination IP', 'Source Port',
+                                       'Destination Port', 'Protocol', 'Duration (s)', 'Total Bytes Sent', 'Total Sent (MB)',
+                                       'Total Bytes Received', 'Total Received (MB)', 'Throughput Sent (Mbps)',
+                                       'Throughput Received (Mbps)', 'Session Length Category']]
 
     summary_output = detailed_output.groupby(['Source IP', 'Destination IP']).agg({
         'Total Sent (MB)': 'sum',
