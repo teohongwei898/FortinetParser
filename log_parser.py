@@ -4,6 +4,39 @@ import argparse
 from glob import glob
 import sys
 import re
+import chardet
+import shutil
+
+def detect_file_encoding(file_path):
+    """Detect encoding using chardet."""
+    with open(file_path, 'rb') as f:
+        raw_data = f.read(4096)
+    result = chardet.detect(raw_data)
+    return result['encoding']
+
+def convert_to_utf8(src_file):
+    """Convert a single file to UTF-8 and return new file path."""
+    encoding = detect_file_encoding(src_file)
+    utf8_file = src_file + ".utf8"
+
+    with open(src_file, 'r', encoding=encoding, errors='ignore') as f_in:
+        content = f_in.read()
+
+    with open(utf8_file, 'w', encoding='utf-8') as f_out:
+        f_out.write(content)
+
+    return utf8_file
+
+def ensure_utf8_files(file_list):
+    """Convert all files to UTF-8 and return updated paths."""
+    utf8_files = []
+    for f in file_list:
+        print(f"Converting {f} to UTF-8...")
+        utf8_path = convert_to_utf8(f)
+        utf8_files.append(utf8_path)
+    return utf8_files
+
+
 
 def extract_timezone(files):
     """Extract and format the timezone as UTC+X."""
@@ -211,7 +244,8 @@ def main():
 
     args = parser.parse_args()
 
-    log_files = [args.file] if args.file else glob(os.path.join(args.directory, "*.log"))
+    original_files = [args.file] if args.file else glob(os.path.join(args.directory, "*.log"))
+    log_files = ensure_utf8_files(original_files)
 
     if args.dedup:
         print("Deduplication enabled. Processing unique log lines only.")
@@ -228,6 +262,10 @@ def main():
         summary_df.to_excel(writer, sheet_name="Summary", index=False)
 
     print(f"Parsed log saved to {output_file}")
+    # Cleanup: delete temporary converted files
+    for f in log_files:
+        if f.endswith(".utf8"):
+            os.remove(f)
 
 if __name__ == "__main__":
     main()
