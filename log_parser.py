@@ -122,6 +122,35 @@ def parse_vpn_user_log(files):
 
     return detailed_output, summary_output
 
+def normalize_service(port, protocol):
+    """Return normalized service name based on port/protocol."""
+    common_services = {
+        80: 'HTTP',
+        443: 'HTTPS',
+        53: 'DNS',
+        25: 'SMTP',
+        22: 'SSH',
+        21: 'FTP',
+        110: 'POP3',
+        143: 'IMAP',
+        3306: 'MySQL',
+        3389: 'RDP',
+        1521: 'Oracle DB',
+        500: 'IPSec',
+        123: 'NTP',
+        5060: 'SIP',
+        1723: 'PPTP'
+    }
+    
+    try:
+        port = int(port)
+    except (ValueError, TypeError):
+        return 'unknown'
+
+    return common_services.get(port, 'unknown')
+
+
+
 def parse_forward_traffic_log(files):
     """Parses forward traffic log files."""
     import numpy as np
@@ -140,6 +169,7 @@ def parse_forward_traffic_log(files):
                         log_entry[key] = value.strip('"') 
 
                 if 'sessionid' in log_entry and 'srcip' in log_entry and 'dstip' in log_entry:
+                    log_entry['service'] = log_entry.get('service', 'unknown')
                     data.append(log_entry)
 
     df = pd.DataFrame(data)
@@ -211,7 +241,7 @@ def parse_forward_traffic_log(files):
         'Throughput Received (Mbps)': 'mean',
         'Session Length Category': 'first'
     }).reset_index()
-
+    session_summary['Service'] = df.groupby(group_cols)['service'].first().values
     session_summary.rename(columns={
         'srcip': 'Source IP',
         'dstip': 'Destination IP',
@@ -223,11 +253,11 @@ def parse_forward_traffic_log(files):
     }, inplace=True)
 
     detailed_output = session_summary[[f'Start Time ({timezone})', 'Session ID', 'Source IP', 'Destination IP', 'Source Port',
-                                       'Destination Port', 'Protocol', 'Duration (s)', 'Total Bytes Sent', 'Total Sent (MB)',
+                                       'Destination Port', 'Protocol', 'Service', 'Duration (s)', 'Total Bytes Sent', 'Total Sent (MB)',
                                        'Total Bytes Received', 'Total Received (MB)', 'Throughput Sent (Mbps)',
                                        'Throughput Received (Mbps)', 'Session Length Category']]
 
-    summary_output = detailed_output.groupby(['Source IP', 'Destination IP']).agg({
+    summary_output = detailed_output.groupby(['Source IP', 'Destination IP', 'Service']).agg({
         'Total Sent (MB)': 'sum',
         'Total Received (MB)': 'sum'
     }).reset_index()
