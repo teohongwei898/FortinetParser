@@ -151,33 +151,7 @@ def normalize_service(port, protocol):
 
 
 
-def parse_forward_traffic_log(files):
-    """Parses forward traffic log files."""
-    import numpy as np
-
-    data = []
-    timezone = extract_timezone(files)
-
-    for file_path in files:
-        with open(file_path, 'r', encoding='utf-8') as file:
-            for line in file:
-                log_entry = {}
-                parts = line.strip().split()
-                for part in parts:
-                    if '=' in part:
-                        key, value = part.split("=", 1)
-                        log_entry[key] = value.strip('"') 
-
-                if 'sessionid' in log_entry and 'srcip' in log_entry and 'dstip' in log_entry:
-                    log_entry['service'] = log_entry.get('service', 'unknown')
-                    data.append(log_entry)
-
-    df = pd.DataFrame(data)
-    if df.empty:
-        print("No valid traffic logs found! Check log format.")
-        return df, pd.DataFrame()
-
-    # Basic numeric conversions
+def process_forward_chunk(df, timezone):
     df['Session ID'] = pd.to_numeric(df['sessionid'], errors='coerce')
     df['Source Port'] = pd.to_numeric(df['srcport'], errors='coerce')
     df['Destination Port'] = pd.to_numeric(df['dstport'], errors='coerce')
@@ -185,32 +159,98 @@ def parse_forward_traffic_log(files):
     df['Bytes Sent'] = pd.to_numeric(df.get('sentbyte', pd.NA), errors='coerce')
     df['Bytes Received'] = pd.to_numeric(df.get('rcvdbyte', pd.NA), errors='coerce')
     df['Duration (s)'] = pd.to_numeric(df.get('duration', pd.NA), errors='coerce')
+    df[f'Start Time ({timezone})'] = pd.to_datetime(df['date'] + " " + df['time'], errors='coerce')
 
-    df[f'Start Time ({timezone})'] = df['date'] + " " + df['time']
-    df[f'Start Time ({timezone})'] = pd.to_datetime(df[f'Start Time ({timezone})'], errors='coerce')
-
-    df = df.sort_values(by=['Session ID', 'Source Port', f'Start Time ({timezone})'])
-
-    # Cumulative max to get highest value per session group
     group_cols = ['Session ID', 'Source Port', 'Destination Port', 'srcip', 'dstip', 'Protocol']
     df['Bytes Sent'] = df.groupby(group_cols)['Bytes Sent'].cummax()
     df['Bytes Received'] = df.groupby(group_cols)['Bytes Received'].cummax()
-
-    # Differences
-    df['Sent Diff'] = df.groupby(group_cols)['Bytes Sent'].diff().fillna(0)
-    df['Received Diff'] = df.groupby(group_cols)['Bytes Received'].diff().fillna(0)
-    df['Sent Diff'] = df['Sent Diff'].clip(lower=0)
-    df['Received Diff'] = df['Received Diff'].clip(lower=0)
-
-    # MB conversions
+    df['Sent Diff'] = df.groupby(group_cols)['Bytes Sent'].diff().fillna(0).clip(lower=0)
+    df['Received Diff'] = df.groupby(group_cols)['Bytes Received'].diff().fillna(0).clip(lower=0)
     df['Sent Diff (MB)'] = df['Sent Diff'] / (1024 * 1024)
     df['Received Diff (MB)'] = df['Received Diff'] / (1024 * 1024)
-
-    # Throughput (Bytes per second and Mbps)
     df['Bytes Sent/sec'] = df['Bytes Sent'] / df['Duration (s)']
     df['Bytes Received/sec'] = df['Bytes Received'] / df['Duration (s)']
     df['Throughput Sent (Mbps)'] = (df['Bytes Sent/sec'] * 8) / 1_000_000
     df['Throughput Received (Mbps)'] = (df['Bytes Received/sec'] * 8) / 1_000_000
+
+    def categorize_duration(seconds):
+        if pd.isna(seconds): return 'Unknown'
+        elif seconds < 10: return 'Very Short (<10s)'
+        elif seconds < 60: return 'Short (<1m)'
+        elif seconds < 300: return 'Medium (<5m)'
+        elif seconds < 1800: return 'Long (<30m)'
+        else: return 'Very Long (>30m)'
+
+    df['Session Length Category'] = df['Duration (s)'].apply(categorize_duration)
+
+    session_summary = df.groupby(group_cols).agg({
+        f'Start Time ({timezone})': 'first',
+        'Duration (s)': 'max',
+        'Sent Diff': 'sum',
+        'Received Diff': 'sum',
+        'Sent Diff (MB)': 'sum',
+        'Received Diff (MB)': 'sum',
+        'Throughput Sent (Mbps)': 'mean',
+        'Throughput Received (Mbps)': 'mean',
+        'Session Length Category': 'first'
+    }).reset_index()
+
+    session_summary['Service'] = df.groupby(group_cols)['service'].first().values
+    session_summary.rename(columns={
+        'srcip': 'Source IP',
+        'dstip': 'Destination IP',
+        'Sent Diff': 'Total Bytes Sent',
+        'Received Diff': 'Total Bytes Received',
+        'Sent Diff (MB)': 'Total Sent (MB)',
+        'Received Diff (MB)': 'Total Received (MB)',
+        'Duration (s)': 'Duration (s)'
+    }, inplace=True)
+
+    return session_summary
+    
+def parse_forward_traffic_log(files):
+    import numpy as np
+    timezone = extract_timezone(files)
+    chunk_size = 100000
+    all_chunks = []
+
+    for file_path in files:
+        with open(file_path, 'r', encoding='utf-8') as file:
+            buffer = []
+            for line in file:
+                log_entry = {}
+                parts = line.strip().split()
+                for part in parts:
+                    if '=' in part:
+                        key, value = part.split("=", 1)
+                        log_entry[key] = value.strip('"')
+                if 'sessionid' in log_entry and 'srcip' in log_entry and 'dstip' in log_entry:
+                    log_entry['service'] = log_entry.get('service', 'unknown')
+                    buffer.append(log_entry)
+                if len(buffer) >= chunk_size:
+                    df_chunk = pd.DataFrame(buffer)
+                    processed = process_forward_chunk(df_chunk, timezone)
+                    all_chunks.append(processed)
+                    buffer.clear()
+            if buffer:
+                df_chunk = pd.DataFrame(buffer)
+                processed = process_forward_chunk(df_chunk, timezone)
+                all_chunks.append(processed)
+
+    full_df = pd.concat(all_chunks, ignore_index=True)
+    time_col = f'Start Time ({timezone})'
+    detailed_output = full_df[[time_col, 'Session ID', 'Source IP', 'Destination IP', 'Source Port',
+                               'Destination Port', 'Protocol', 'Service', 'Duration (s)', 'Total Bytes Sent',
+                               'Total Sent (MB)', 'Total Bytes Received', 'Total Received (MB)',
+                               'Throughput Sent (Mbps)', 'Throughput Received (Mbps)', 'Session Length Category']]
+
+    summary_output = detailed_output.groupby(['Source IP', 'Destination IP', 'Service']).agg({
+        'Total Sent (MB)': 'sum',
+        'Total Received (MB)': 'sum'
+    }).reset_index()
+
+    return detailed_output, summary_output
+
 
     # Categorize session durations
     def categorize_duration(seconds):
@@ -269,7 +309,7 @@ def main():
     parser.add_argument('-t', '--type', choices=['forward_traffic', 'vpn_event'], required=True, help="Type of log file to process")
     parser.add_argument('-d', '--directory', required=False, help="Directory containing log files")
     parser.add_argument('-f', '--file', required=False, help="Single log file to process")
-    parser.add_argument('-o', '--output', required=False, help="Output directory for the parsed XLSX file")
+    parser.add_argument('-o', '--output', required=False, help="Output directory for the parsed CSV files")
     parser.add_argument('--dedup', action='store_true', help="Enable deduplication of log lines across files")
 
     args = parser.parse_args()
@@ -282,20 +322,30 @@ def main():
         deduplicated_file = deduplicate_files(log_files)
         log_files = [deduplicated_file]
 
-    detailed_df, summary_df = parse_forward_traffic_log(log_files) if args.type == 'forward_traffic' else parse_vpn_user_log(log_files)
+    # Use chunked version for forward traffic
+    if args.type == 'forward_traffic':
+        detailed_df, summary_df = parse_forward_traffic_log(log_files)
+    else:
+        detailed_df, summary_df = parse_vpn_user_log(log_files)
 
     output_path = args.output if args.output else os.getcwd()
-    output_file = os.path.join(output_path, f"{args.type}_output.xlsx")
+    os.makedirs(output_path, exist_ok=True)
 
-    with pd.ExcelWriter(output_file, engine='xlsxwriter') as writer:
-        detailed_df.to_excel(writer, sheet_name="Detailed Output", index=False)
-        summary_df.to_excel(writer, sheet_name="Summary", index=False)
+    # Save as CSV instead of Excel
+    detailed_file = os.path.join(output_path, f"{args.type}_detailed.csv")
+    summary_file = os.path.join(output_path, f"{args.type}_summary.csv")
 
-    print(f"Parsed log saved to {output_file}")
+    detailed_df.to_csv(detailed_file, index=False)
+    summary_df.to_csv(summary_file, index=False)
+
+    print(f"Detailed log saved to {detailed_file}")
+    print(f"Summary log saved to {summary_file}")
+
     # Cleanup: delete temporary converted files
     for f in log_files:
         if f.endswith(".utf8"):
             os.remove(f)
+
 
 if __name__ == "__main__":
     main()
