@@ -243,15 +243,39 @@ def main():
     # Output directory
     output_path = args.output if args.output else os.getcwd()
     os.makedirs(output_path, exist_ok=True)
-
+    
     # Save detailed and summary CSVs
     detailed_file = os.path.join(output_path, f"{args.type}_detailed.csv")
     summary_file = os.path.join(output_path, f"{args.type}_summary.csv")
+    
+    # --- Ensure numeric columns in Summary ---
+    if args.type == 'vpn_event':
+        vpn_numeric_columns = ['Total_Failures', 'Total_Success']
+        for col in vpn_numeric_columns:
+            if col in summary_df.columns:
+                summary_df[col] = pd.to_numeric(summary_df[col], errors='coerce')
+    
+        # Optional: Sort by Total_Failures descending
+        if 'Total_Failures' in summary_df.columns:
+            summary_df.sort_values(by='Total_Failures', ascending=False, inplace=True)
+    
+    elif args.type == 'forward_traffic':
+        traffic_numeric_columns = ['Total Bytes Sent', 'Total Bytes Received', 'Total Sessions']
+        for col in traffic_numeric_columns:
+            if col in summary_df.columns:
+                summary_df[col] = pd.to_numeric(summary_df[col], errors='coerce')
+    
+        # Optional: Sort by Total Bytes Sent descending
+        if 'Total Bytes Sent' in summary_df.columns:
+            summary_df.sort_values(by='Total Bytes Sent', ascending=False, inplace=True)
+    
+    # Export CSVs
     detailed_df.to_csv(detailed_file, index=False)
     summary_df.to_csv(summary_file, index=False)
-
+    
     print(f"Detailed log saved to {detailed_file}")
     print(f"Summary log saved to {summary_file}")
+
 
     # Cleanup temporary UTF-8 files
     for f in utf8_files:
